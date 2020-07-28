@@ -1,0 +1,535 @@
+<?php
+
+defined('BASEPATH') OR exit('No direct script access allowed');
+
+class Api extends BD_Controller {
+    function __construct()
+    {
+        parent::__construct();
+        header("Access-Control-Allow-Origin: *");
+        $this->methods['users_get']['limit'] = 500; // 500 requests per hour per user/key
+        $this->methods['users_post']['limit'] = 100; // 100 requests per hour per user/key
+        $this->methods['users_delete']['limit'] = 50; // 50 requests per hour per user/key
+        $this->load->model('M_main');
+        $this->load->helper(array('form', 'url'));
+        $this->auth();
+        date_default_timezone_set('Asia/Jakarta');
+    }
+    
+    function sendmail_post()
+    {
+        $mailto=$this->post('mailto');
+        $subject=$this->post('subject');
+        $content=$this->post('content');
+        $attach=json_decode($this->post('attachment'));
+        $send=$this->M_main->sendmail($mailto,$subject,$content,$attach);
+        $this->response($send);
+    }
+   
+	public function find_get()
+	{
+		$table=$this->uri->segment(3);
+		if(isset($_GET)) $params=$_GET; else $params=false;
+		$val = $this->M_main->find($table,$params,$this->user_data);
+		$this->response($val);
+	}
+	
+	public function findone_get()
+	{
+		$table=$this->uri->segment(3);
+		if(isset($_GET)) $params=$_GET; else $params=false;
+		$val = $this->M_main->findone($table,$params,$this->user_data);
+		
+		$this->response($val);
+	}
+	
+	public function create_post()
+	{
+		$table=$this->uri->segment(3);
+		$data=$this->post('data');
+		$val = $this->M_main->create($table,$data,$this->user_data);			
+		$this->response($val);
+	}
+	
+	public function destroy_delete()
+	{
+		$table=$this->uri->segment(3);
+		if(isset($_GET)) $params=$_GET; else $params=false;	
+		$val = $this->M_main->destroy($table,$params,$this->user_data);
+		
+		$this->response($val);
+	}
+	
+	public function update_put()
+	{
+		$table=$this->uri->segment(3);
+		$data=$this->put('data');		
+		$val = $this->M_main->update($table,$data);
+		
+		$this->response($val);
+	}
+   
+	public function me_get()
+	{       
+        $c = $this->user_data;
+        if(isset($c->username))
+        {
+            $val=$this->db->get_where('sekolah',array('username'=>$c->username))->row();
+            $d=array(
+            'id'=>$val->id,
+            'username'=>$c->username,
+            'namaSekolah'=>$val->nama,
+            'db_siswa'=>$val->dbSiswa,
+            'db_program'=>$val->dbProgram,
+            'kategori'=>$val->kategori,
+            'level'=>$val->level
+            );
+            $this->response($d, 200);
+        }else{
+            $this->response($c, 200);
+        }
+        
+	}
+	
+	function user_get()
+    {
+			$uid=$this->uri->segment(3);
+			$user='';
+			if($this->user_data)
+			{
+				$user=$this->M_main->user($uid);						
+			}
+			$this->response($user);
+    }
+    
+    function status_get()
+    {
+        $param=$this->uri->segment(3);
+        $this->response($param);
+    }
+	
+	//special api
+	function createmhs_post()
+	{
+	    $data=$this->post('data');
+	    $cekNim=$this->db->get_where('db_mahasiswa',array('nim'=>$data['nim']));
+	    if($cekNim->num_rows() == 0)
+	    {
+	        $val = $this->M_main->create('db_mahasiswa',$data);	
+	    }else{
+	        $val=false;
+	    }
+	    
+	    $this->response($val);
+	    
+	}
+	
+	function createdosen_post()
+	{
+	    $data=$this->post('data');
+	    $cekNim=$this->db->get_where('db_dosen',array('nidn'=>$data['nidn']));
+	    if($cekNim->num_rows() == 0)
+	    {
+	        $val = $this->M_main->create('db_dosen',$data);	
+	    }else{
+	        $val=false;
+	    }
+	    
+	    $this->response($val);
+	    
+	}
+	
+	function mapel_get()
+	{
+	    $kurikulum=$this->uri->segment(3);
+	    $schID=$this->user_data->id;
+	    $k=$this->user_data->kategori;
+	    $q=$this->db->query("SELECT * FROM db_mapel WHERE (sekolahID=$schID OR sekolahID=0) AND kategori='$k' AND kurikulum=$kurikulum")->result();
+	    $this->response($q);
+	}
+	
+	function detailkelas_get()
+	{
+	    $id=$this->uri->segment(3);
+	    $q=$this->db->query("SELECT * FROM (SELECT * FROM app_krs WHERE id_kelas=$id) as krs LEFT JOIN (SELECT nim,nama as namaMhs, prodi as id_prodi, tahunMasuk FROM db_mahasiswa) as mhs ON krs.nim=mhs.nim");
+	    $data=array();
+	    if($q->num_rows()>0)
+	    {
+	        foreach($q->result() as $row)
+	        {
+	            $row->prodi=$this->M_main->findone('db_prodi',array('kode'=>$row->id_prodi),$this->user_data);
+	           
+	            $data[]=$row;
+	        }
+	    }
+	    
+	    $this->response($data);
+	}
+	
+	function akun_get()
+	{
+	    $role=$this->uri->segment(3);
+	    $q=$this->db->query("SELECT * FROM users_user WHERE role!=1 && role!=3");
+	     $data=array();
+	    if($q->num_rows()>0)
+	    {
+	        foreach($q->result() as $row)
+	        {
+	            $data[]=$row;
+	        }
+	    }
+	    
+	    $this->response($data);
+	}
+	function generateakun_post()
+	{
+	    $q=$this->db->query("SELECT nim,email, YEAR(tanggalLahir) as tahunLahir, MONTH(tanggalLahir) as bulanLahir, DAY(tanggalLahir) as tanggalLahir FROM db_mahasiswa WHERE nim NOT IN (SELECT username FROM users_user WHERE role=2)");
+	   $res=false;
+	    if($q->num_rows()>0)
+	    {
+	        foreach($q->result() as $row)
+	        {
+	            if(strlen($row->bulanLahir)==1) $bulan='0'.$row->bulanLahir;
+	            else $bulan=$row->bulanLahir;
+	            if(strlen($row->tanggalLahir)==1) $tanggal='0'.$row->tanggalLahir;
+	            else $tanggal=$row->tanggalLahir;
+	            if(strlen($row->tahunLahir)==1) $tahun='0000';
+	            else $tahun=$row->tahunLahir;
+	            //set default password
+	            $pw=($tanggal.$bulan.$tahun);
+	             $data=array(
+		        'username'=>$row->nim,
+		        'email'=>$row->email,
+		        'password'=>($pw),
+		        'confirmed'=>1,
+		        'role'=>2
+		        );
+		        //save to database
+		        $this->db->insert('users_user',$data);
+		        $res[]=$data;
+	        }
+	    }
+	    if($res==false) $dt=array('status'=>false,'message'=>'Semua data mahasiswa sudah memiliki akun atau belum terdapat data mahasiswa pada database.');
+	    else $dt=array('status'=>true,'message'=>'Berhasil membuat akun mahasiswa sebanyak '.$q->num_rows().'. Default username Mahasiswa menggunakan NIM sedangkan password menggunakan tanggal lahir. USERNAME: NIM, PASSWORD: DDMMYYYY');
+	    $this->response($dt);
+	}
+	
+	function akundosen_get()
+	{
+	    $role=$this->uri->segment(3);
+	    $q=$this->db->query("SELECT * FROM users_user WHERE role!=2 && role!=1");
+	     $data=array();
+	    if($q->num_rows()>0)
+	    {
+	        foreach($q->result() as $row)
+	        {
+	            $data[]=$row;
+	        }
+	    }
+	    
+	    $this->response($data);
+	}
+	function generateakundosen_post()
+	{
+	    $q=$this->db->query("SELECT nidn, YEAR(tanggalLahir) as tahunLahir, MONTH(tanggalLahir) as bulanLahir, DAY(tanggalLahir) as tanggalLahir FROM db_dosen WHERE nidn NOT IN (SELECT username FROM users_user WHERE role=3)");
+	   $res=false;
+	    if($q->num_rows()>0)
+	    {
+	        foreach($q->result() as $row)
+	        {
+	            if(strlen($row->bulanLahir)==1) $bulan='0'.$row->bulanLahir;
+	            else $bulan=$row->bulanLahir;
+	            if(strlen($row->tanggalLahir)==1) $tanggal='0'.$row->tanggalLahir;
+	            else $tanggal=$row->tanggalLahir;
+	            if(strlen($row->tahunLahir)==1) $tahun='0000';
+	            else $tahun=$row->tahunLahir;
+	            //set default password
+	            $pw=($tanggal.$bulan.$tahun);
+	             $data=array(
+		        'username'=>$row->nidn,
+		        'password'=>($pw),
+		        'confirmed'=>1,
+		        'role'=>3
+		        );
+		        //save to database
+		        $this->db->insert('users_user',$data);
+		        $res[]=$data;
+	        }
+	    }
+	    if($res==false) $dt=array('status'=>false,'message'=>'Semua data dosen sudah memiliki akun atau belum terdapat data dosen pada database.');
+	    else $dt=array('status'=>true,'message'=>'Berhasil membuat akun dosen sebanyak '.$q->num_rows().'. Default username Dosen menggunakan NIDN sedangkan password menggunakan tanggal lahir. USERNAME: NIM, PASSWORD: DDMMYYYY');
+	    $this->response($dt);
+	}
+	
+	function resetpassword_post()
+	{
+        $data=$this->post('data');
+        $un=$data['username'];
+        $p=md5($data['password']);
+        if(strlen($p)>5)
+        {
+            $dt=array('password'=>$p);
+            $this->db->where('username',$un);
+            $res=$this->db->update('users_user',$dt);
+        }else{
+            $res=false;
+        }
+	    $this->response($res);
+	}
+	
+	function krs_post()
+	{
+	   $data=$this->post('data');
+	   $cek=$this->M_main->findone('app_krs',$data,$this->user_data);
+	   if($cek==false)
+	   {
+	       $q=$this->M_main->create('app_krs',$data,$this->user_data);
+	       $val=array('success'=>true,'msg'=>'OK');
+	   }else{
+	       $val=array('success'=>false,'msg'=>'EXIST');
+	   }
+	   $this->response($val);
+	}
+	function siswa_get()
+	{
+	    $tahunMasuk=$this->uri->segment(3);
+	    $tahunID=$this->uri->segment(4);
+	    $dbSiswa=$this->user_data->db_siswa;
+	    $schID=$this->user_data->id;
+	    $q=$this->db->query("SELECT id as siswaID, nis, nama FROM $dbSiswa WHERE sekolahID=$schID AND status='Aktif' AND tahunMasuk=$tahunMasuk AND nis NOT IN (SELECT siswaID FROM db_kelas_anggota WHERE tahunID=$tahunID)");
+	    $this->response($q->result());
+	}
+	function anggotakelas_get()
+	{
+	    $tahunID=$this->uri->segment(3);
+	    $kelasID=$this->uri->segment(4);
+	    $dbSiswa=$this->user_data->db_siswa;
+	    $sekolahID=$this->user_data->id;
+	    $q=$this->db->query("SELECT kls.siswaID, dbs.nis, dbs.siswaID, dbs.nama, dbs.tahunMasuk 
+	    FROM (SELECT siswaID, kelasID, tahunID FROM db_kelas_anggota WHERE tahunID=$tahunID AND kelasID=$kelasID) as kls 
+	    LEFT JOIN (SELECT id as siswaID, nis, nama, tahunMasuk FROM $dbSiswa WHERE sekolahID=$sekolahID) as dbs 
+	    ON kls.siswaID=dbs.siswaID ");
+	    $this->response($q->result());
+	}
+	function nilai_get()
+	{
+	    $tahunID=$this->get('tahunID');
+	    $kelasID=$this->get('kelasID');
+	    $tingkatID=$this->get('tingkatID');
+	    $mapelID=$this->get('mapelID');
+	    $semester=$this->get('semester');
+	    $dbSiswa=$this->user_data->db_siswa;
+	    $sekolahID=$this->user_data->id;
+	    $q=$this->db->query("SELECT dbs.siswaID, dbs.nis, dbs.nama, dbs.tahunMasuk, dbs.dbNilai
+	    FROM (SELECT siswaID, kelasID, tahunID FROM db_kelas_anggota WHERE kelasID=$kelasID) as kls 
+	    LEFT JOIN (SELECT id as siswaID, nis, nama, dbNilai, tahunMasuk FROM $dbSiswa WHERE sekolahID=$sekolahID) as dbs 
+	    ON kls.siswaID=dbs.siswaID");
+	    $data=false;
+	    if($q->num_rows()>0)
+	    {
+	       foreach($q->result() as $row)
+	       {
+	           $dbNilai=$row->dbNilai;
+	           $siswaID=$row->siswaID;
+	           if($siswaID==null) $siswaID=-1;
+	           if($dbNilai==null) $dbNilai='siswa_1';
+	           $q2=$this->db->query("SELECT id,siswaID,data,rapot_angka, rapot_predikat, rapot_deskripsi FROM $dbNilai WHERE 
+	          mapelID='$mapelID' AND sekolahID=$sekolahID AND tahunID=$tahunID AND semester='$semester' AND tingkatID=$tingkatID AND  siswaID='$siswaID' ");
+	           if($q2->num_rows()>0)
+	           {
+	               $rapot_des=json_decode($q2->row()->rapot_deskripsi);
+	               if($rapot_des=='' || $rapot_des==null || !is_object($rapot_des)) $rapot_des=(object)array(); 
+	               $rapot_num=json_decode($q2->row()->rapot_angka);
+	               if($rapot_num=='' || $rapot_num==null || !is_object($rapot_num)) $rapot_num=(object)array(); 
+	               $rapot_p=json_decode($q2->row()->rapot_predikat);
+	               if($rapot_p=='' || $rapot_p==null || !is_object($rapot_p)) $rapot_p=(object)array(); 
+	               
+	               $dt=array(
+	                   'id'=>$q2->row()->id,
+	                   'data'=>json_decode($q2->row()->data),
+	                   'db_nilai'=>$dbNilai,
+	                   'rapot_deskripsi'=>$rapot_des,
+	                   'rapot_predikat'=>$rapot_p,
+	                   'rapot_angka'=>$rapot_num
+	                   );
+	                $row->nilai=$dt;
+	           }else{
+	               $dat=array(
+	                   'sekolahID'=>$sekolahID, 'mapelID'=>$mapelID,'siswaID'=>$siswaID, 'tahunID'=>$tahunID, 'semester'=>$semester,'tingkatID'=>$tingkatID
+	                   );
+	               $this->db->insert($dbNilai,$dat);
+	               $nn=$this->db->get_where($dbNilai,$dat);
+	               $dt=array(
+	                   'id'=>$nn->row()->id,
+	                   'data'=>json_decode($nn->row()->data),
+	                   'db_nilai'=>$dbNilai
+	                   );
+	                $row->nilai=$dt;
+	               
+	           };
+	           $q3=$this->db->query("SELECT data FROM $dbNilai WHERE 
+	           siswaID=$siswaID AND mapelID='$mapelID' AND sekolahID=$sekolahID AND tahunID=0 AND semester='' AND tingkatID=$tingkatID");
+	           if($q3->num_rows()>0)
+	           $row->nilai_arsip=json_decode($q3->row()->data);
+	           else $row->nilai_arsip=false;
+	           $data[]=$row;
+	       }
+	    }
+	    $this->response($q->result());
+	}
+	
+	function repairnilai($dat)
+	{
+	    $dbProgram=$this->user_data->db_program;
+	    $dbNilai=$dat['dbNilai'];
+	    if($dat['semester']=='GASAL') $semester=1; else $semester=2;
+	    $dd=array(
+	      'tahun'=>$dat['tahunID'],
+	      'semester'=>$semester,
+	      'tingkat'=>$dat['tingkatID'],
+	      'sekolahID'=>$dat['sekolahID'],
+	      'mapelID'=>$dat['mapelID']
+	    );
+	    $q=$this->db->get_where($dbProgram,$dd);
+	    if($q->num_rows()>0)
+	    {
+	        //data nilai lama
+	        $siswaID=$dat['siswaID'];
+	        $mapelID=$dat['mapelID'];
+	        $sekolahID=$dat['sekolahID'];
+	        $q3=$this->db->query("SELECT data,siswaID,sekolahID,mapelID FROM $dbNilai WHERE 
+	           siswaID=$siswaID AND mapelID='$mapelID' AND sekolahID=$sekolahID AND tahunID=0 AND semester=''");
+	        if($q3->num_rows()>0) $dataOld=json_decode($q3->row()->data); else $dataOld=array();
+	        $dataNilai=null;
+	        foreach($q->result() as $row)
+	        {
+	            if(isset($dataOld[$row->kode]))
+	            {
+	                $dataNilai[$row->kode]=$dataOld[$row->kode];
+	            }
+	        }
+	        return $dataNilai;
+	    }else{
+	        return null;
+	    }
+	    
+	}
+	
+	
+	function configkurikulum_get()
+	{
+	   $schID=$this->user_data->id;
+	    $q=$this->db->query("
+	    SELECT * 
+	    FROM config_kurikulum 
+	    LEFT JOIN (SELECT id as cfgID, format FROM config_formatrapot) as fr ON fr.cfgID=config_kurikulum.formatRapot 
+	    WHERE sekolahID=$schID
+	    ");
+	    
+	     $this->response($q->result());
+	    
+	}
+	
+	//ekstensi
+	function apps_get()
+	{
+	   $schID=$this->user_data->id;
+	   $q=$this->db->query("
+	   SELECT * FROM apps 
+	   LEFT JOIN (SELECT id as installedID, appID as apid,created_at,expired_at FROM apps_installed WHERE sekolahID=$schID) as installed ON installed.apid=apps.appID
+	   ORDER BY installed.created_at DESC
+	   ");
+	   $this->response($q->result());
+	}
+	function apps_post()
+	{
+	    $data=array('appID'=>$this->post('appID'));
+	    $res=$this->M_main->create('apps_installed',$data,$this->user_data);
+	    $this->response($res);
+	}
+	
+	//ekstra
+	function ekstra_get()
+	{
+	   $schID=$this->user_data->id;
+	   $q=$this->db->query("
+	   SELECT * FROM app_ekskul
+	   LEFT JOIN (SELECT id as guruID, nama as pembina_nama FROM db_guru) as guru ON guru.guruID=app_ekskul.pembina
+	   WHERE sekolahID=$schID
+	   ");
+	    $this->response($q->result());
+	}
+	function pesertaekstra_get()
+	{
+	    $schID=$this->user_data->id;
+	    $dbSiswa=$this->user_data->db_siswa;
+	    $tahun=$this->get('tahun');
+	    $semester=$this->get('semester');
+	    $ekstraID=$this->get('ekstraID');
+	   $q=$this->db->query("
+	   SELECT * FROM app_ekskul_data
+	   LEFT JOIN (SELECT id as siswaID, nama, tahunMasuk FROM $dbSiswa) as siswa ON siswa.siswaID=app_ekskul_data.siswaID
+	   WHERE sekolahID=$schID AND tahunID=$tahun AND semester='$semester' AND ekskulID=$ekstraID
+	   ");
+	    $this->response($q->result());
+	}
+	function dataekstra_get()
+	{
+	    $siswaID=$this->uri->segment(3);
+	    $q=$this->db->query("
+	      SELECT * FROM app_ekskul_data
+	      LEFT JOIN (SELECT id as ekskulID, nama FROM app_ekskul) as app_ekskul ON app_ekskul.ekskulID=app_ekskul_data.ekskulID
+	      WHERE siswaID=$siswaID
+	    ");
+	     $this->response($q->result());
+	}
+	
+	//nilai sikap
+	function nilaisikap_get()
+	{
+	    $tahun=$this->get('tahunID');
+	    $semester=$this->get('semester');
+	    $kelas=$this->get('kelas');
+	    $guru=$this->get('guru');
+	    $tingkat=$this->get('tingkat');
+	    $dbSiswa=$this->user_data->db_siswa;
+	    $schID=$this->user_data->id;
+	    $q=$this->db->query("SELECT * FROM db_kelas_anggota
+	    LEFT JOIN (SELECT nama,nis, id as siswaID FROM $dbSiswa WHERE sekolahID=$schID) as dbs ON dbs.siswaID=db_kelas_anggota.siswaID
+	    WHERE db_kelas_anggota.kelasID=$kelas
+	    ORDER BY nis ASC
+	    ");
+	    $res=array();
+	    if($q->num_rows()>0)
+	    {
+	       foreach($q->result() as $row)
+	       {
+	           if($guru==0)
+	           {
+	                $q2=$this->db->get_where('app_sikap_data',array('siswaID'=>$row->siswaID,'tahunID'=>$tahun,'semester'=>$semester,'sekolahID'=>$schID,'tingkat'=>$tingkat));
+	                if($q2->num_rows()>0)
+	                $row->data=$q2->result();
+	                else $row->data=array();
+	           }
+	           else{
+	                $q2=$this->db->get_where('app_sikap_data',array('siswaID'=>$row->siswaID,'tahunID'=>$tahun,'semester'=>$semester,'guruID'=>$guru,'tingkat'=>$tingkat,'sekolahID'=>$schID));
+	                if($q2->num_rows()>0)
+	                {
+	                $dat=$q2->row()->data;
+	                $row->data=json_decode($dat);
+	                $row->dataID=$q2->row()->id;
+	                }
+	                else {
+	                    $row->data=(object) array();
+	                    $row->dataID=false;
+	                }
+	           }
+	           
+	           $res[]=$row;
+	       }
+	    }
+	     $this->response($res);
+	}
+	
+	
+}

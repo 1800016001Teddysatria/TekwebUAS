@@ -6,5 +6,6 @@ import { Component } from '@angular/core';
   styleUrls: ['./app.component.css']
 })
 export class AppComponent {
-  title = 'tekwebuas';
+  title = 'uas-tekweb teddy satria - 1800016001';
+  
 }
